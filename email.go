@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/lambda"
@@ -47,14 +49,14 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 		return err
 	}
 
-	transcribePolicy, err := iam.NewRolePolicy(ctx, "answering-machine-send-email-lambda-start-transcription-job", &iam.RolePolicyArgs{
+	sesPolicy, err := iam.NewRolePolicy(ctx, "answering-machine-send-email-ses-policy", &iam.RolePolicyArgs{
 		Role: role.Name,
 		Policy: pulumi.String(`{
 			"Version": "2012-10-17",
 			"Statement": [{
 				"Effect": "Allow",
 				"Action": [
-					"transcribe:StartTranscriptionJob"
+					"ses:SendRawEmail"
 				],
 				"Resource": "*"
 			}]
@@ -78,8 +80,32 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 					"arn:aws:s3:::%s/*",
 					"arn:aws:s3:::%s/*"
 				]
+			},{
+				"Effect": "Allow",
+				"Action": [
+					"dynamodb:GetItem"
+				],
+				"Resource": [
+					"%s"
+				]
 			}]
-		}`, recordingBucketID, transcriptionBucketID),
+		}`, recordingBucketID, transcriptionBucketID, answeringMachineTable.Arn),
+	})
+
+	ddbPolicy, err := iam.NewRolePolicy(ctx, "answering-machine-send-email-lambda-dynamodb-policy", &iam.RolePolicyArgs{
+		Role: role.Name,
+		Policy: pulumi.Sprintf(`{
+			"Version": "2012-10-17",
+			"Statement": [{
+				"Effect": "Allow",
+				"Action": [
+					"dynamodb:GetItem"
+				],
+				"Resource": [
+					"%s"
+				]
+			}]
+		}`, answeringMachineTable.Arn),
 	})
 
 	xrayPolicy, err := iam.NewRolePolicy(ctx, "answering-machine-send-email-lambda-xray-policy", &iam.RolePolicyArgs{
@@ -110,6 +136,7 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 				"ANSWERING_MACHINE_TABLE":                answeringMachineTable.ID(),
 				"ANSWERING_MACHINE_RECORDING_BUCKET":     recordingBucketID,
 				"ANSEWRING_MACHINE_TRANSCRIPTION_BUCKET": transcriptionBucketID,
+				"TO_EMAIL":                               pulumi.String(os.Getenv("TO_EMAIL")),
 			},
 		},
 		TracingConfig: lambda.FunctionTracingConfigArgs{
@@ -121,7 +148,7 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 		ctx,
 		"answering-machine-amazon-send-email-invoke",
 		args,
-		pulumi.DependsOn([]pulumi.Resource{logPolicy, transcribePolicy, s3Policy, xrayPolicy}),
+		pulumi.DependsOn([]pulumi.Resource{logPolicy, sesPolicy, s3Policy, xrayPolicy, ddbPolicy}),
 	)
 
 	if err != nil {

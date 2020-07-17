@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"mime/multipart"
 	"net/textproto"
 	"os"
@@ -22,7 +24,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/aws/aws-sdk-go/service/ses"
 	"github.com/aws/aws-sdk-go/service/ses/sesiface"
-	"github.com/aws/aws-xray-sdk-go/xray"
 )
 
 type deps struct {
@@ -65,43 +66,56 @@ func (deps *deps) handler(s3Event events.S3Event) error {
 
 		recordingSID := strings.Split(record.S3.Object.Key, ".")[0]
 
+		log.Printf("recordingSID: %s", recordingSID)
+
 		recordingFilePath := fmt.Sprintf("/tmp/%s.mp3", recordingSID)
 		transcriptFilePath := fmt.Sprintf("/tmp/%s.json", recordingSID)
 
-		recordingFile, err := os.Open(recordingFilePath)
+		log.Printf("recordingFilePath: %s", recordingFilePath)
+		log.Printf("transcriptFilePath: %s", transcriptFilePath)
+
+		recordingFile, err := os.Create(recordingFilePath)
 		if err != nil {
 			return err
 		}
 
-		transcriptFile, err := os.Open(transcriptFilePath)
+		log.Print("Opened recording file")
+
+		transcriptFile, err := os.Create(transcriptFilePath)
 		if err != nil {
 			return err
 		}
 
-		objects := []s3manager.BatchDownloadObject{
-			{
-				Object: &s3.GetObjectInput{
-					Bucket: aws.String(deps.recordingBucket),
-					Key:    aws.String(recordingSID),
+		log.Print("Opened transcript file")
+
+		iter := &s3manager.DownloadObjectsIterator{
+			Objects: []s3manager.BatchDownloadObject{
+				{
+					Object: &s3.GetObjectInput{
+						Bucket: aws.String(deps.recordingBucket),
+						Key:    aws.String(recordingSID),
+					},
+					Writer: recordingFile,
 				},
-				Writer: recordingFile,
-			},
-			{
-				Object: &s3.GetObjectInput{
-					Bucket: aws.String(record.S3.Object.Key),
-					Key:    aws.String(record.S3.Bucket.Name),
+				{
+					Object: &s3.GetObjectInput{
+						Bucket: aws.String(record.S3.Bucket.Name),
+						Key:    aws.String(record.S3.Object.Key),
+					},
+					Writer: transcriptFile,
 				},
-				Writer: transcriptFile,
 			},
 		}
 
-		iter := &s3manager.DownloadObjectsIterator{Objects: objects}
+		log.Print("Downloading files now.")
+
 		err = deps.s3.DownloadWithIterator(aws.BackgroundContext(), iter)
 
 		if err != nil {
 			return err
 		}
 
+		log.Print("Reading transcript.")
 		file, _ := ioutil.ReadFile(transcriptFilePath)
 		if err != nil {
 			return err
@@ -113,6 +127,7 @@ func (deps *deps) handler(s3Event events.S3Event) error {
 			return err
 		}
 
+		log.Print("Getting webhook data.")
 		result, err := deps.dynamodb.GetItem(&dynamodb.GetItemInput{
 			TableName: aws.String(deps.answeringMachineTable),
 			Key: map[string]*dynamodb.AttributeValue{
@@ -132,7 +147,7 @@ func (deps *deps) handler(s3Event events.S3Event) error {
 		}
 
 		subject := fmt.Sprintf("New voicemail from %s", webhookData.Caller)
-		recording, err := ioutil.ReadFile(transcriptFilePath)
+		recording, err := ioutil.ReadFile(recordingFilePath)
 		if err != nil {
 			return err
 		}
@@ -164,8 +179,6 @@ func main() {
 	dynamodb := dynamodb.New(sess)
 	s3downloader := s3manager.NewDownloader(sess)
 
-	xray.AWS(dynamodb.Client)
-
 	deps := deps{
 		ses:                   ses,
 		dynamodb:              dynamodb,
@@ -180,7 +193,12 @@ func main() {
 }
 
 // https://gist.github.com/carelvwyk/60100f2421c6284391d08374bc887dca
-func buildEmailInput(source, destination, subject, message string, csvFile []byte) (*ses.SendRawEmailInput, error) {
+func buildEmailInput(source, destination, subject, message string, fileContent []byte) (*ses.SendRawEmailInput, error) {
+
+	log.Printf("source: %s", source)
+	log.Printf("destination: %s", destination)
+	log.Printf("subject: %s", subject)
+	log.Printf("message: %s", message)
 
 	buf := new(bytes.Buffer)
 	writer := multipart.NewWriter(buf)
@@ -215,14 +233,18 @@ func buildEmailInput(source, destination, subject, message string, csvFile []byt
 	// file attachment:
 	fn := "voicemail.mp3"
 	h = make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", "attachment; filename="+fn)
-	h.Set("Content-Type", "text/csv; x-unix-mode=0644; name=\""+fn+"\"")
-	h.Set("Content-Transfer-Encoding", "7bit")
+	h.Set("Content-Disposition", "attachment")
+	h.Set("Content-Type", "audio/mpeg; name=\""+fn+"\"")
+	h.Set("Content-Transfer-Encoding", "base64")
 	part, err = writer.CreatePart(h)
 	if err != nil {
 		return nil, err
 	}
-	_, err = part.Write(csvFile)
+
+	// Encode as base64.
+	encoded := base64.StdEncoding.EncodeToString(fileContent)
+
+	_, err = part.Write([]byte(encoded))
 	if err != nil {
 		return nil, err
 	}
