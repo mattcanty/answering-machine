@@ -19,4 +19,4 @@ build-download-recording-function:
 test:
 	go test ./...
 
-build: | test build-send-email-function build-webhook-function build-transcribe-function build-download-recording-function
+all: | test build-send-email-function build-webhook-function build-transcribe-function build-download-recording-function

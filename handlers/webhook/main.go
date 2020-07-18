@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/url"
 	"os"
@@ -20,7 +21,7 @@ type deps struct {
 	tableName string
 }
 
-func (deps *deps) handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+func (deps *deps) handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	params, err := url.ParseQuery(request.Body)
 	if err != nil {
 		log.Fatal(err)
@@ -42,7 +43,7 @@ func (deps *deps) handler(request events.APIGatewayProxyRequest) (events.APIGate
 		}, err
 	}
 
-	_, err = deps.dynamodb.PutItem(&dynamodb.PutItemInput{
+	_, err = deps.dynamodb.PutItemWithContext(ctx, &dynamodb.PutItemInput{
 		Item:      attributeValues,
 		TableName: aws.String(deps.tableName),
 	})

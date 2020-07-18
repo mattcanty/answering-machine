@@ -30,7 +30,7 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 		},
 		{
 			Effect: "Allow",
-			Action: []string{"s3:GetItem"},
+			Action: []string{"dynamodb:GetItem"},
 			Resource: []string{
 				"%s",
 			},

@@ -53,7 +53,7 @@ func TestLambdaHandler(t *testing.T) {
 			tableName: tableName,
 		}
 
-		_, err := deps.handler(events.APIGatewayProxyRequest{
+		_, err := deps.handler(aws.BackgroundContext(), events.APIGatewayProxyRequest{
 			Body: fmt.Sprintf("RecordingSid=%s&RecordingUrl=%s", recordingSID, recordingURL),
 		})
 		if err != nil {

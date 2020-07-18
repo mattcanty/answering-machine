@@ -111,15 +111,24 @@ func configureWebhook(ctx *pulumi.Context, account *aws.GetCallerIdentityResult,
 		return dynamodb.Table{}, err
 	}
 
-	_, err = apigateway.NewDeployment(ctx, "answering-machine-webhook-api-deployment", &apigateway.DeploymentArgs{
-		Description:      pulumi.String("Answering Machine API deployment"),
-		RestApi:          gateway.ID(),
-		StageDescription: pulumi.String("dev"),
-		StageName:        pulumi.String("dev"),
+	deployment, err := apigateway.NewDeployment(ctx, "answering-machine-webhook-api-deployment", &apigateway.DeploymentArgs{
+		RestApi: gateway.ID(),
 	}, pulumi.DependsOn([]pulumi.Resource{gateway, webhookResource, function, permission}))
 	if err != nil {
 		return dynamodb.Table{}, err
 	}
+
+	_, err = apigateway.NewStage(ctx, "live", &apigateway.StageArgs{
+		RestApi:            gateway.ID(),
+		Deployment:         deployment.ID(),
+		StageName:          pulumi.String("live"),
+		XrayTracingEnabled: pulumi.Bool(true),
+	})
+	if err != nil {
+		return dynamodb.Table{}, err
+	}
+
+	ctx.Export("Webhook Endpoint", pulumi.Sprintf("https://%s.execute-api.%s.amazonaws.com/dev/webhook", gateway.ID(), region.Name))
 
 	return *dynamodbTable, nil
 }

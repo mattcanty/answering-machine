@@ -12,4 +12,5 @@ require (
 	github.com/pulumi/pulumi/sdk/v2 v2.0.0
 	github.com/stretchr/testify v1.5.1
 	github.com/uber/jaeger-client-go v2.22.1+incompatible
+	google.golang.org/genproto v0.0.0-20190819201941-24fa4b261c55
 )
