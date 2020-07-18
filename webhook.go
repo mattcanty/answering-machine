@@ -4,7 +4,6 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/apigateway"
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/dynamodb"
-	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/lambda"
 	"github.com/pulumi/pulumi/sdk/v2/go/pulumi"
 )
@@ -26,97 +25,25 @@ func configureWebhook(ctx *pulumi.Context, account *aws.GetCallerIdentityResult,
 		return dynamodb.Table{}, err
 	}
 
-	role, err := iam.NewRole(ctx, "answering-machine-webhook-lambda-role", &iam.RoleArgs{
-		AssumeRolePolicy: pulumi.String(`{
-			"Version": "2012-10-17",
-			"Statement": [{
-				"Sid": "",
-				"Effect": "Allow",
-				"Principal": {
-					"Service": "lambda.amazonaws.com"
-				},
-				"Action": "sts:AssumeRole"
-			}]
-		}`),
-	})
-
-	if err != nil {
-		return dynamodb.Table{}, err
-	}
-
-	logPolicy, err := iam.NewRolePolicy(ctx, "answering-machine-webhook-lambda-log-policy", &iam.RolePolicyArgs{
-		Role: role.Name,
-		Policy: pulumi.String(`{
-			"Version": "2012-10-17",
-			"Statement": [{
-				"Effect": "Allow",
-				"Action": [
-					"logs:CreateLogGroup",
-					"logs:CreateLogStream",
-					"logs:PutLogEvents"
-				],
-				"Resource": "arn:aws:logs:*:*:*"
-			}]
-		}`),
-	})
-
-	dynamodbPolicy, err := iam.NewRolePolicy(ctx, "answering-machine-webhook-lambda-s3-policy", &iam.RolePolicyArgs{
-		Role: role.Name,
-		Policy: pulumi.Sprintf(`{
-			"Version": "2012-10-17",
-			"Statement": [{
-				"Effect": "Allow",
-				"Action": [
-					"dynamodb:PutItem"
-				],
-				"Resource": "arn:aws:dynamodb:*:*:table/%s"
-			}]
-		}`, dynamodbTable.ID()),
-	})
-
-	xrayPolicy, err := iam.NewRolePolicy(ctx, "answering-machine-webhook-lambda-lambda-xray-policy", &iam.RolePolicyArgs{
-		Role: role.Name,
-		Policy: pulumi.String(`{
-			"Version": "2012-10-17",
-			"Statement": [{
-				"Effect": "Allow",
-				"Action": [
-					"xray:PutTraceSegments",
-					"xray:PutTelemetryRecords",
-					"xray:GetSamplingRules",
-					"xray:GetSamplingTargets",
-					"xray:GetSamplingStatisticSummaries"
-				],
-				"Resource": "*"
-			}]
-		}`),
-	})
-
-	if err != nil {
-		return dynamodb.Table{}, err
-	}
-
-	args := &lambda.FunctionArgs{
-		Handler: pulumi.String("webhook-handler"),
-		Role:    role.Arn,
-		Runtime: pulumi.String("go1.x"),
-		Code:    pulumi.NewFileArchive("./build/webhook-handler.zip"),
-		Environment: lambda.FunctionEnvironmentArgs{
-			Variables: pulumi.StringMap{
-				"TABLE": dynamodbTable.ID(),
-			},
-		},
-		TracingConfig: lambda.FunctionTracingConfigArgs{
-			Mode: pulumi.String("Active"),
+	statementEntries := []policyStatementEntry{
+		{
+			Effect:       "Allow",
+			Action:       []string{"dynamodb:PutItem"},
+			Resource:     []string{"arn:aws:dynamodb:*:*:table/%s"},
+			resourceArgs: []interface{}{dynamodbTable.ID()},
 		},
 	}
 
-	function, err := lambda.NewFunction(
-		ctx,
-		"answering-machine-webhook-lambda-function",
-		args,
-		pulumi.DependsOn([]pulumi.Resource{logPolicy, dynamodbPolicy, xrayPolicy}),
-	)
+	env := lambda.FunctionEnvironmentArgs{
+		Variables: pulumi.StringMap{
+			"TABLE": dynamodbTable.ID(),
+		},
+	}
+
+	function, err := makeLambda(ctx, "webhook", statementEntries, env)
+	if err != nil {
+		return dynamodb.Table{}, err
+	}
 
 	gateway, err := apigateway.NewRestApi(ctx, "answering-machine-webhook-api", &apigateway.RestApiArgs{
 		Name:        pulumi.String("answering-machine-webhook-api"),
@@ -127,7 +54,7 @@ func configureWebhook(ctx *pulumi.Context, account *aws.GetCallerIdentityResult,
 				"Action": "sts:AssumeRole",
 				"Principal": {
 					"Service": "lambda.amazonaws.com"
-			},
+				},
 				"Effect": "Allow",
 				"Sid": ""
 			},

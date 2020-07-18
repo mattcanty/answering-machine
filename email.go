@@ -49,7 +49,7 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 		},
 	}
 
-	function, err := makeLambda(ctx, "amazon-send-email-invoke", statementEntries, env)
+	function, err := makeLambda(ctx, "send-email", statementEntries, env)
 	if err != nil {
 		return err
 	}

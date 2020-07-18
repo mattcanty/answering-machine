@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 )
 
 type assumeRolePolicyDocument struct {
@@ -63,8 +62,6 @@ func newPolicyDocumentString(statementEntries ...policyStatementEntry) (string, 
 	doc.Statement = statementEntries
 
 	byteSlice, err := json.Marshal(&doc)
-
-	log.Print(args)
 
 	return string(byteSlice), args, err
 }

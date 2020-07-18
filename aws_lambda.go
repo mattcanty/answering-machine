@@ -14,16 +14,12 @@ func makeLambda(
 	statementEntries []policyStatementEntry,
 	env lambda.FunctionEnvironmentArgs) (*lambda.Function, error) {
 
-	roleName := fmt.Sprintf("answering-machine-%s-lambda-role", name)
-	policyName := fmt.Sprintf("answering-machine-%s-lambda-policy", name)
-	functionName := fmt.Sprintf("answering-machine-%s", name)
-
 	assumeRolePolicy, err := newAssumeRolePolicyDocumentString("lambda.amazonaws.com")
 	if err != nil {
 		return &lambda.Function{}, err
 	}
 
-	role, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
+	role, err := iam.NewRole(ctx, fmt.Sprintf("answering-machine-%s-lambda-role", name), &iam.RoleArgs{
 		AssumeRolePolicy: pulumi.String(assumeRolePolicy),
 	})
 	if err != nil {
@@ -64,16 +60,16 @@ func makeLambda(
 		return &lambda.Function{}, err
 	}
 
-	rolePolicy, err := iam.NewRolePolicy(ctx, policyName, &iam.RolePolicyArgs{
+	rolePolicy, err := iam.NewRolePolicy(ctx, fmt.Sprintf("answering-machine-%s-lambda-policy", name), &iam.RolePolicyArgs{
 		Role:   role.Name,
 		Policy: pulumi.Sprintf(policy, strArgs...),
 	})
 
 	args := &lambda.FunctionArgs{
-		Handler:     pulumi.String("send-email-handler"),
+		Handler:     pulumi.Sprintf("%s-handler", name),
 		Role:        role.Arn,
 		Runtime:     pulumi.String("go1.x"),
-		Code:        pulumi.NewFileArchive("./build/send-email-handler.zip"),
+		Code:        pulumi.NewFileArchive(fmt.Sprintf("./build/%s-handler.zip", name)),
 		Environment: env,
 		TracingConfig: lambda.FunctionTracingConfigArgs{
 			Mode: pulumi.String("Active"),
@@ -82,7 +78,7 @@ func makeLambda(
 
 	function, err := lambda.NewFunction(
 		ctx,
-		functionName,
+		fmt.Sprintf("answering-machine-%s", name),
 		args,
 		pulumi.DependsOn([]pulumi.Resource{rolePolicy}),
 	)
