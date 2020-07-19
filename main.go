@@ -27,11 +27,11 @@ func main() {
 			return err
 		}
 
-		transcriptionBucketID, err := configureTranscribe(ctx, recordingBucketID)
+		transcriptionTable, err := configureGoogleSpeech(ctx, recordingBucketID)
 		if err != nil {
 			return err
 		}
 
-		return configureSendEmail(ctx, answeringMachineTable, recordingBucketID, transcriptionBucketID)
+		return configureSendEmail(ctx, answeringMachineTable, transcriptionTable, recordingBucketID)
 	})
 }

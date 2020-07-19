@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -35,27 +34,6 @@ type deps struct {
 	toEmail               string
 	answeringMachineTable string
 	recordingBucket       string
-	transcriptionBucket   string
-}
-
-type transcribeJob struct {
-	JobName   string `json:"jobName"`
-	AccountID string `json:"accountId"`
-	Results   struct {
-		Transcripts []struct {
-			Transcript string `json:"transcript"`
-		} `json:"transcripts"`
-		Items []struct {
-			StartTime    string `json:"start_time,omitempty"`
-			EndTime      string `json:"end_time,omitempty"`
-			Alternatives []struct {
-				Confidence string `json:"confidence"`
-				Content    string `json:"content"`
-			} `json:"alternatives"`
-			Type string `json:"type"`
-		} `json:"items"`
-	} `json:"results"`
-	Status string `json:"status"`
 }
 
 type webhookData struct {
@@ -63,25 +41,18 @@ type webhookData struct {
 	Caller       string
 }
 
-func (deps *deps) handler(ctx context.Context, s3Event events.S3Event) error {
-	for _, record := range s3Event.Records {
-
-		recordingSID := strings.Split(record.S3.Object.Key, ".")[0]
+func (deps *deps) handler(ctx context.Context, ddbEvent events.DynamoDBEvent) error {
+	for _, record := range ddbEvent.Records {
+		recordingSID := record.Change.NewImage["RecordingSid"].String()
+		transcription := record.Change.NewImage["Transcription"].String()
 
 		log.Printf("recordingSID: %s", recordingSID)
 
 		recordingFilePath := fmt.Sprintf("/tmp/%s.mp3", recordingSID)
-		transcriptFilePath := fmt.Sprintf("/tmp/%s.json", recordingSID)
 
 		log.Printf("recordingFilePath: %s", recordingFilePath)
-		log.Printf("transcriptFilePath: %s", transcriptFilePath)
 
 		recordingFile, err := os.Create(recordingFilePath)
-		if err != nil {
-			return err
-		}
-
-		transcriptFile, err := os.Create(transcriptFilePath)
 		if err != nil {
 			return err
 		}
@@ -95,28 +66,10 @@ func (deps *deps) handler(ctx context.Context, s3Event events.S3Event) error {
 					},
 					Writer: recordingFile,
 				},
-				{
-					Object: &s3.GetObjectInput{
-						Bucket: aws.String(record.S3.Bucket.Name),
-						Key:    aws.String(record.S3.Object.Key),
-					},
-					Writer: transcriptFile,
-				},
 			},
 		}
 
 		err = deps.s3.DownloadWithIterator(ctx, iter)
-		if err != nil {
-			return err
-		}
-
-		file, _ := ioutil.ReadFile(transcriptFilePath)
-		if err != nil {
-			return err
-		}
-
-		job := &transcribeJob{}
-		err = json.Unmarshal([]byte(file), &job)
 		if err != nil {
 			return err
 		}
@@ -149,7 +102,7 @@ func (deps *deps) handler(ctx context.Context, s3Event events.S3Event) error {
 			deps.toEmail,
 			deps.toEmail,
 			subject,
-			job.Results.Transcripts[0].Transcript,
+			transcription,
 			recording,
 		)
 		if err != nil {
@@ -182,9 +135,8 @@ func main() {
 		dynamodb:              dynamodb,
 		s3:                    s3downloader,
 		toEmail:               os.Getenv("TO_EMAIL"),
-		answeringMachineTable: os.Getenv("ANSWERING_MACHINE_TABLE"),
+		answeringMachineTable: os.Getenv("ANSWERING_MACHINE_WEBHOOK_DATA_TABLE"),
 		recordingBucket:       os.Getenv("ANSWERING_MACHINE_RECORDING_BUCKET"),
-		transcriptionBucket:   os.Getenv("ANSEWRING_MACHINE_TRANSCRIPTION_BUCKET"),
 	}
 
 	lambda.Start(deps.handler)

@@ -5,11 +5,14 @@ import (
 
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/lambda"
-	"github.com/pulumi/pulumi-aws/sdk/v2/go/aws/s3"
 	"github.com/pulumi/pulumi/sdk/v2/go/pulumi"
 )
 
-func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Table, recordingBucketID pulumi.IDOutput, transcriptionBucketID pulumi.IDOutput) error {
+func configureSendEmail(
+	ctx *pulumi.Context,
+	answeringMachineTable, transcriptionTable dynamodb.Table,
+	recordingBucketID pulumi.IDOutput) error {
+
 	statementEntries := []policyStatementEntry{
 		{
 			Effect:   "Allow",
@@ -21,31 +24,40 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 			Action: []string{"s3:GetObject"},
 			Resource: []string{
 				"arn:aws:s3:::%s/*",
-				"arn:aws:s3:::%s/*",
 			},
-			resourceArgs: []interface{}{
-				recordingBucketID,
-				transcriptionBucketID,
-			},
+			resourceArgs: []interface{}{recordingBucketID},
 		},
 		{
 			Effect: "Allow",
 			Action: []string{"dynamodb:GetItem"},
 			Resource: []string{
 				"%s",
+				"%s",
 			},
 			resourceArgs: []interface{}{
 				answeringMachineTable.Arn,
+				transcriptionTable.Arn,
 			},
+		},
+		{
+			Effect: "Allow",
+			Action: []string{
+				"dynamodb:GetRecords",
+				"dynamodb:GetShardIterator",
+				"dynamodb:DescribeStream",
+				"dynamodb:ListStreams",
+			},
+			Resource:     []string{"%s"},
+			resourceArgs: []interface{}{transcriptionTable.StreamArn},
 		},
 	}
 
 	env := lambda.FunctionEnvironmentArgs{
 		Variables: pulumi.StringMap{
-			"ANSWERING_MACHINE_TABLE":                answeringMachineTable.ID(),
-			"ANSWERING_MACHINE_RECORDING_BUCKET":     recordingBucketID,
-			"ANSEWRING_MACHINE_TRANSCRIPTION_BUCKET": transcriptionBucketID,
-			"TO_EMAIL":                               pulumi.String(os.Getenv("TO_EMAIL")),
+			"ANSWERING_MACHINE_WEBHOOK_DATA_TABLE": answeringMachineTable.ID(),
+			"ANSWERING_MACHINE_TRANSCRIPTON_TABLE": transcriptionTable.ID(),
+			"ANSWERING_MACHINE_RECORDING_BUCKET":   recordingBucketID,
+			"TO_EMAIL":                             pulumi.String(os.Getenv("TO_EMAIL")),
 		},
 	}
 
@@ -54,28 +66,24 @@ func configureSendEmail(ctx *pulumi.Context, answeringMachineTable dynamodb.Tabl
 		return err
 	}
 
-	_, err = lambda.NewPermission(ctx, "answering-machine-send-email-lambda-permission", &lambda.PermissionArgs{
+	_, err = lambda.NewPermission(ctx, "answering-machine-google-transcript-ready-lambda-permission", &lambda.PermissionArgs{
 		Action:    pulumi.String("lambda:InvokeFunction"),
 		Function:  function.Name,
 		Principal: pulumi.String("s3.amazonaws.com"),
-		SourceArn: pulumi.Sprintf("arn:aws:s3:::%s", transcriptionBucketID),
+		SourceArn: transcriptionTable.StreamArn,
 	})
 	if err != nil {
 		return err
 	}
 
-	_, err = s3.NewBucketNotification(ctx, "answering-machine-new-transcription", &s3.BucketNotificationArgs{
-		Bucket: transcriptionBucketID,
-		LambdaFunctions: s3.BucketNotificationLambdaFunctionArray{
-			s3.BucketNotificationLambdaFunctionArgs{
-				Events: pulumi.StringArray{
-					pulumi.String("s3:ObjectCreated:*"),
-				},
-				FilterSuffix:      pulumi.String("json"),
-				LambdaFunctionArn: function.Arn,
-			},
-		},
+	_, err = lambda.NewEventSourceMapping(ctx, "answering-machine-google-transcript-ready", &lambda.EventSourceMappingArgs{
+		EventSourceArn:   transcriptionTable.StreamArn,
+		FunctionName:     function.Arn,
+		StartingPosition: pulumi.String("LATEST"),
 	})
+	if err != nil {
+		return err
+	}
 
 	return err
 }

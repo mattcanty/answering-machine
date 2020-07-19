@@ -14,7 +14,9 @@ build-download-recording-function:
 	GOOS=linux GOARCH=amd64 go build -o ./build/download-recording-handler ./handlers/download-recording/main.go
 	zip -j ./build/download-recording-handler.zip ./build/download-recording-handler
 
+build-google-speech-function:
+	GOOS=linux GOARCH=amd64 go build -o ./build/google-speech-handler ./handlers/google-speech/main.go
+	zip -j ./build/google-speech-handler.zip ./build/google-speech-handler
+
 test:
 	go test ./...
-
-all: | test build-send-email-function build-webhook-function build-transcribe-function build-download-recording-function

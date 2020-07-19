@@ -74,6 +74,7 @@ func makeLambda(
 		TracingConfig: lambda.FunctionTracingConfigArgs{
 			Mode: pulumi.String("Active"),
 		},
+		Timeout: pulumi.Int(10),
 	}
 
 	function, err := lambda.NewFunction(

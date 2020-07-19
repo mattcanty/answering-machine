@@ -41,12 +41,8 @@ func configureRecordingDownload(ctx *pulumi.Context, answeringMachineTable dynam
 				"dynamodb:DescribeStream",
 				"dynamodb:ListStreams",
 			},
-			Resource: []string{
-				"%s",
-			},
-			resourceArgs: []interface{}{
-				answeringMachineTable.StreamArn,
-			},
+			Resource:     []string{"%s"},
+			resourceArgs: []interface{}{answeringMachineTable.StreamArn},
 		},
 	}
 
@@ -76,7 +72,6 @@ func configureRecordingDownload(ctx *pulumi.Context, answeringMachineTable dynam
 		FunctionName:     function.Arn,
 		StartingPosition: pulumi.String("LATEST"),
 	})
-
 	if err != nil {
 		return pulumi.IDOutput{}, err
 	}
