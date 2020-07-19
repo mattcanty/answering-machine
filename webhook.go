@@ -128,7 +128,7 @@ func configureWebhook(ctx *pulumi.Context, account *aws.GetCallerIdentityResult,
 		return dynamodb.Table{}, err
 	}
 
-	ctx.Export("Webhook Endpoint", pulumi.Sprintf("https://%s.execute-api.%s.amazonaws.com/dev/webhook", gateway.ID(), region.Name))
+	ctx.Export("Webhook Endpoint", pulumi.Sprintf("https://%s.execute-api.%s.amazonaws.com/live/webhook", gateway.ID(), region.Name))
 
 	return *dynamodbTable, nil
 }

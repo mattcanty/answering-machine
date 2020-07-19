@@ -1,5 +1,3 @@
-.PHONY: build
-
 build-send-email-function:
 	GOOS=linux GOARCH=amd64 go build -o ./build/send-email-handler ./handlers/send-email/main.go
 	zip -j ./build/send-email-handler.zip ./build/send-email-handler

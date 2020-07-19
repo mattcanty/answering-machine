@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/aws/aws-sdk-go/service/ses"
 	"github.com/aws/aws-sdk-go/service/ses/sesiface"
+	"github.com/aws/aws-xray-sdk-go/xray"
 )
 
 type deps struct {
@@ -61,7 +63,7 @@ type webhookData struct {
 	Caller       string
 }
 
-func (deps *deps) handler(s3Event events.S3Event) error {
+func (deps *deps) handler(ctx context.Context, s3Event events.S3Event) error {
 	for _, record := range s3Event.Records {
 
 		recordingSID := strings.Split(record.S3.Object.Key, ".")[0]
@@ -79,14 +81,10 @@ func (deps *deps) handler(s3Event events.S3Event) error {
 			return err
 		}
 
-		log.Print("Opened recording file")
-
 		transcriptFile, err := os.Create(transcriptFilePath)
 		if err != nil {
 			return err
 		}
-
-		log.Print("Opened transcript file")
 
 		iter := &s3manager.DownloadObjectsIterator{
 			Objects: []s3manager.BatchDownloadObject{
@@ -107,15 +105,11 @@ func (deps *deps) handler(s3Event events.S3Event) error {
 			},
 		}
 
-		log.Print("Downloading files now.")
-
-		err = deps.s3.DownloadWithIterator(aws.BackgroundContext(), iter)
-
+		err = deps.s3.DownloadWithIterator(ctx, iter)
 		if err != nil {
 			return err
 		}
 
-		log.Print("Reading transcript.")
 		file, _ := ioutil.ReadFile(transcriptFilePath)
 		if err != nil {
 			return err
@@ -127,8 +121,7 @@ func (deps *deps) handler(s3Event events.S3Event) error {
 			return err
 		}
 
-		log.Print("Getting webhook data.")
-		result, err := deps.dynamodb.GetItem(&dynamodb.GetItemInput{
+		result, err := deps.dynamodb.GetItemWithContext(ctx, &dynamodb.GetItemInput{
 			TableName: aws.String(deps.answeringMachineTable),
 			Key: map[string]*dynamodb.AttributeValue{
 				"RecordingSid": {
@@ -163,7 +156,7 @@ func (deps *deps) handler(s3Event events.S3Event) error {
 			return err
 		}
 
-		_, err = deps.ses.SendRawEmail(input)
+		_, err = deps.ses.SendRawEmailWithContext(ctx, input)
 		if err != nil {
 			return err
 		}
@@ -177,7 +170,12 @@ func main() {
 
 	ses := ses.New(sess)
 	dynamodb := dynamodb.New(sess)
-	s3downloader := s3manager.NewDownloader(sess)
+	s3client := s3.New(sess)
+
+	xray.AWS(dynamodb.Client)
+	xray.AWS(s3client.Client)
+
+	s3downloader := s3manager.NewDownloaderWithClient(s3client)
 
 	deps := deps{
 		ses:                   ses,

@@ -75,7 +75,7 @@ func TestLambdaHandler(t *testing.T) {
 		newImage["RecordingSid"] = events.NewStringAttribute(recordingSID)
 		newImage["RecordingUrl"] = events.NewStringAttribute(recordingURL)
 
-		err := deps.handler(events.DynamoDBEvent{
+		err := deps.handler(aws.BackgroundContext(), events.DynamoDBEvent{
 			Records: []events.DynamoDBEventRecord{
 				{
 					Change: events.DynamoDBStreamRecord{
